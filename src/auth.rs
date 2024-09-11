@@ -115,7 +115,7 @@ async fn authorize((role, headers): (Role, HeaderMap<HeaderValue>)) -> WebResult
             }
             Ok(decoded.claims.sub)
         }
-        Err(e) => Err(reject::custom(e)),
+        Err(_) => Err(reject::custom(Error::InvalidAuthorizationHeader)),
     }
 }
 
