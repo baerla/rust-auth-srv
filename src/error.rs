@@ -19,7 +19,7 @@ struct ErrorResponse {
 
 impl Debug for Error {
     fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        _f.write_str("Error")
     }
 }
 
@@ -60,11 +60,6 @@ pub async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply,
             Error::Unauthorized => {
                 code = StatusCode::FORBIDDEN;
                 message = "No permission";
-            }
-            _ => {
-                eprintln!("unhandled rejection: {:?}", err);
-                code = StatusCode::BAD_REQUEST;
-                message = "Internal Server Error";
             }
         }
     } else if dbg!(err.find::<warp::reject::MethodNotAllowed>().is_some()) {

@@ -20,25 +20,29 @@ pub struct User {
     pub password: String,
     pub role: String,
 }
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct LoginRequest {
     pub email: String,
     pub password: String,
 }
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct LoginResponse {
     pub token: String,
+}
+
+fn get_login_route(users: Arc<HashMap<String, User>>) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    warp::path!("login")
+        .and(warp::post())
+        .and(with_users(users.clone()))
+        .and(warp::body::json())
+        .and_then(login_handler)
 }
 
 #[tokio::main]
 async fn main() {
     let users = Arc::new(init_users());
 
-    let login_route = warp::path!("login")
-        .and(warp::post())
-        .and(with_users(users.clone()))
-        .and(warp::body::json())
-        .and_then(login_handler);
+    let login_route = get_login_route(users);
 
     let user_route = warp::path!("user")
         .and(with_auth(Role::User))
@@ -101,4 +105,31 @@ fn init_users() -> HashMap<String, User> {
         },
     );
     users
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use warp::http::StatusCode;
+    use warp::test::request;
+    use std::sync::Arc;
+
+
+    #[tokio::test]
+    async fn login_success() {
+        let users = Arc::new(init_users());
+        let api = get_login_route(users);
+
+        let resp = request()
+            .method("POST")
+            .path("/login")
+            .json(&LoginRequest {
+                email: "user@userland.com".to_string(),
+                password: "password".to_string(),
+            })
+            .reply(&api)
+            .await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
 }
