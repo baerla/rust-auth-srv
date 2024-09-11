@@ -30,7 +30,9 @@ pub struct LoginResponse {
     pub token: String,
 }
 
-fn get_login_route(users: Arc<HashMap<String, User>>) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+fn get_login_route(
+    users: Arc<HashMap<String, User>>,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     warp::path!("login")
         .and(warp::post())
         .and(with_users(users.clone()))
@@ -110,13 +112,51 @@ fn init_users() -> HashMap<String, User> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use warp::http::StatusCode;
-    use warp::test::request;
     use std::sync::Arc;
-
+    use warp::http::{Response, StatusCode};
+    use warp::hyper::body::Bytes;
+    use warp::test::request;
 
     #[tokio::test]
     async fn login_success() {
+        let users = Arc::new(init_users());
+        let api = get_login_route(users);
+
+        let resp = get_valid_user_token(api.clone()).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    async fn get_valid_user_token(
+        api: impl Filter<Extract = impl Reply, Error = Rejection> + Clone + 'static,
+    ) -> Response<Bytes> {
+        request()
+            .method("POST")
+            .path("/login")
+            .json(&LoginRequest {
+                email: "user@userland.com".to_string(),
+                password: "password".to_string(),
+            })
+            .reply(&api)
+            .await
+    }
+
+    async fn get_valid_admin_token(
+        api: impl Filter<Extract = impl Reply, Error = Rejection> + Clone + 'static,
+    ) -> Response<Bytes> {
+        request()
+            .method("POST")
+            .path("/login")
+            .json(&LoginRequest {
+                email: "admin@adminaty.com".to_string(),
+                password: "admin".to_string(),
+            })
+            .reply(&api)
+            .await
+    }
+
+    #[tokio::test]
+    async fn login_wrong_credentials() {
         let users = Arc::new(init_users());
         let api = get_login_route(users);
 
@@ -125,11 +165,115 @@ mod tests {
             .path("/login")
             .json(&LoginRequest {
                 email: "user@userland.com".to_string(),
-                password: "password".to_string(),
+                password: "wrongpassword".to_string(),
             })
             .reply(&api)
             .await;
 
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn user_route_success() {
+        let api = warp::path!("user")
+            .and(with_auth(Role::User))
+            .and_then(user_handler);
+
+        let user_token_bytes = get_valid_user_token(api.clone()).await;
+        let token_string = String::from_utf8(user_token_bytes.body().to_vec()).expect("Invalid utf8");
+
+        let resp = request()
+            .method("GET")
+            .path("/user")
+            .header("Authorization", format!("Bearer {}", token_string))
+            .reply(&api)
+            .await;
+
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn admin_route_success() {
+        let api = warp::path!("admin")
+            .and(with_auth(Role::Admin))
+            .and_then(admin_handler);
+
+        let admin_token_bytes = get_valid_admin_token(api.clone()).await;
+        let token_string = String::from_utf8(admin_token_bytes.body().to_vec()).expect("Invalid utf8");
+
+        println!("token_string: {}", token_string);
+
+        let resp = request()
+            .method("GET")
+            .path("/admin")
+            .header("Authorization", format!("Bearer {}", token_string))
+            .reply(&api)
+            .await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn user_route_old_token() {
+        let api = warp::path!("user")
+            .and(with_auth(Role::User))
+            .and_then(user_handler);
+
+        let resp = request()
+            .method("GET")
+            .path("/user")
+            .header("Authorization", "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIyIiwicm9sZSI6IkFkbWluIiwiZXhwIjoxNzI2MDU1NjAzfQ.kj3zCxe24qNMXRyqNchVfhXLhWY6ceQaAH2Y0owqYVnCCbV_24-1sE-PkOdd9PjdcXduUYS1rPXMxfhkLntRbQ")
+            .reply(&api)
+            .await;
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn admin_route_old_token() {
+        let api = warp::path!("admin")
+            .and(with_auth(Role::Admin))
+            .and_then(admin_handler);
+
+        let resp = request()
+            .method("GET")
+            .path("/admin")
+            .header("Authorization", "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIyIiwicm9sZSI6IkFkbWluIiwiZXhwIjoxNzI2MDU1NjAzfQ.kj3zCxe24qNMXRyqNchVfhXLhWY6ceQaAH2Y0owqYVnCCbV_24-1sE-PkOdd9PjdcXduUYS1rPXMxfhkLntRbQ")
+            .reply(&api)
+            .await;
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn user_route_unauthorized() {
+        let api = warp::path!("user")
+            .and(with_auth(Role::User))
+            .and_then(user_handler);
+
+        let resp = request()
+            .method("GET")
+            .path("/user")
+            .header("Authorization", "Bearer invalidtoken")
+            .reply(&api)
+            .await;
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn admin_route_unauthorized() {
+        let api = warp::path!("admin")
+            .and(with_auth(Role::Admin))
+            .and_then(admin_handler);
+
+        let resp = request()
+            .method("GET")
+            .path("/admin")
+            .header("Authorization", "Bearer invalidtoken")
+            .reply(&api)
+            .await;
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 }
