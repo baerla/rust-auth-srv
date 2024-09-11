@@ -25,7 +25,7 @@ impl Debug for Error {
 
 impl warp::reject::Reject for Error {}
 
-pub async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply, Infallible> {
+pub async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
     let code;
     let message;
 
@@ -62,7 +62,7 @@ pub async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply,
                 message = "No permission";
             }
         }
-    } else if dbg!(err.find::<warp::reject::MethodNotAllowed>().is_some()) {
+    } else if dbg!(err.find::<reject::MethodNotAllowed>().is_some()) {
         code = StatusCode::METHOD_NOT_ALLOWED;
         message = "Method Not Allowed";
     } else {

@@ -112,25 +112,33 @@ fn init_users() -> HashMap<String, User> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::create_jwt;
+    use rand::Rng;
     use std::sync::Arc;
-    use warp::http::{Response, StatusCode};
-    use warp::hyper::body::Bytes;
+    use warp::http::StatusCode;
     use warp::test::request;
 
+    fn get_valid_admin_token() -> String {
+        // generate random int and transform it to a string
+        let mut rng = rand::thread_rng();
+        let n: u16 = rng.gen();
+        let user_id = n.to_string();
+        create_jwt(&user_id, &Role::Admin).expect("Failed to create token")
+    }
+    fn get_valid_user_token() -> String {
+        // generate random int and transform it to a string
+        let mut rng = rand::thread_rng();
+        let n: u16 = rng.gen();
+        let user_id = n.to_string();
+        create_jwt(&user_id, &Role::User).expect("Failed to create token")
+    }
+
     #[tokio::test]
-    async fn login_success() {
+    async fn user_login_success() {
         let users = Arc::new(init_users());
         let api = get_login_route(users);
 
-        let resp = get_valid_user_token(api.clone()).await;
-
-        assert_eq!(resp.status(), StatusCode::OK);
-    }
-
-    async fn get_valid_user_token(
-        api: impl Filter<Extract = impl Reply, Error = Rejection> + Clone + 'static,
-    ) -> Response<Bytes> {
-        request()
+        let resp = request()
             .method("POST")
             .path("/login")
             .json(&LoginRequest {
@@ -138,13 +146,17 @@ mod tests {
                 password: "password".to_string(),
             })
             .reply(&api)
-            .await
+            .await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 
-    async fn get_valid_admin_token(
-        api: impl Filter<Extract = impl Reply, Error = Rejection> + Clone + 'static,
-    ) -> Response<Bytes> {
-        request()
+    #[tokio::test]
+    async fn admin_login_success() {
+        let users = Arc::new(init_users());
+        let api = get_login_route(users);
+
+        let resp = request()
             .method("POST")
             .path("/login")
             .json(&LoginRequest {
@@ -152,7 +164,9 @@ mod tests {
                 password: "admin".to_string(),
             })
             .reply(&api)
-            .await
+            .await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 
     #[tokio::test]
@@ -179,8 +193,7 @@ mod tests {
             .and(with_auth(Role::User))
             .and_then(user_handler);
 
-        let user_token_bytes = get_valid_user_token(api.clone()).await;
-        let token_string = String::from_utf8(user_token_bytes.body().to_vec()).expect("Invalid utf8");
+        let token_string = get_valid_user_token();
 
         let resp = request()
             .method("GET")
@@ -198,10 +211,7 @@ mod tests {
             .and(with_auth(Role::Admin))
             .and_then(admin_handler);
 
-        let admin_token_bytes = get_valid_admin_token(api.clone()).await;
-        let token_string = String::from_utf8(admin_token_bytes.body().to_vec()).expect("Invalid utf8");
-
-        println!("token_string: {}", token_string);
+        let token_string = get_valid_admin_token();
 
         let resp = request()
             .method("GET")
